@@ -1,0 +1,79 @@
+# ============================================================
+# VoiceGuard — Docker Compose
+# ============================================================
+# Usage:
+#   docker compose up --build
+#
+# Services:
+#   api       — FastAPI backend (port 8000)
+#   frontend  — React dashboard (port 5173 dev / 80 prod)
+#   postgres  — PostgreSQL 16 with pgvector
+#   redis     — Redis 7 for ephemeral session state
+# ============================================================
+
+services:
+  # ---------- PostgreSQL ----------
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: voiceguard
+      POSTGRES_PASSWORD: voiceguard
+      POSTGRES_DB: voiceguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voiceguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------- FastAPI Backend ----------
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://voiceguard:voiceguard@postgres:5432/voiceguard
+      REDIS_URL: redis://redis:6379/0
+      MODEL_MODE: demo
+      VOICEGUARD_API_KEY: ""
+      DEFAULT_RISK_THRESHOLD: "70"
+      DEFAULT_WORKFLOW: otp
+      EMA_ALPHA: "0.3"
+      SPECTRAL_WEIGHT: "0.40"
+      PROSODY_WEIGHT: "0.30"
+      SPEAKER_WEIGHT: "0.30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ---------- React Frontend ----------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
